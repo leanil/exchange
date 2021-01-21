@@ -5,16 +5,16 @@
     [next.jdbc.prepare :as p]))
 
 (def datasource
-  (jdbc/get-datasource {:dbtype "postgresql"
-                        :dbname "exchange"
-                        :user "exchange_user"
+  (jdbc/get-datasource {:dbtype   "postgresql"
+                        :dbname   "exchange"
+                        :user     "exchange_user"
                         :password "exchange_password"}))
-(def migratus-config {:store :database
-                      :migration-dir "migrations/"
-                      :init-script "init.sql"
+(def migratus-config {:store                :database
+                      :migration-dir        "migrations/"
+                      :init-script          "init.sql"
                       ;:init-in-transaction? false
                       :migration-table-name "migrations"
-                      :db {:datasource datasource}})
+                      :db                   {:datasource datasource}})
 
 (defn init-db []
   (migratus/init migratus-config)

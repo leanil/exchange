@@ -17,7 +17,7 @@
             [exchange.database :as database]
             [ring.logger.timbre :refer [wrap-with-logger wrap-with-body-logger]]
             [ring.middleware.stacktrace :refer [wrap-stacktrace-log]])
-  (:import (java.io StringReader)))
+  )
 
 ; based on https://github.com/metosin/reitit/blob/master/examples/ring-swagger/src/example/server.clj
 
@@ -25,46 +25,46 @@
   (ring/ring-handler
     (ring/router
       [["/swagger.json"
-        {:get {:no-doc true
-               :swagger {:info {:title "clojure playground exchange"
+        {:get {:no-doc  true
+               :swagger {:info {:title       "clojure playground exchange"
                                 :description "with reitit-ring"}}
                :handler (swagger/create-swagger-handler)}}]
        ["/api"
         {:swagger {:tags ["api"]}}
         ["/users"
-         {:get {:summary "list all users"
-                :parameters {}
-                :handler (fn [_]
-                           (let [users (database/list-user)]
-                             (response {:users users})))}
-          :post {:summary "create user"
-                 :parameters {:body {:email string?
+         {:get  {:summary    "list all users"
+                 :parameters {}
+                 :handler    (fn [_]
+                               (let [users (database/list-user)]
+                                 (response {:users users})))}
+          :post {:summary    "create user"
+                 :parameters {:body {:email    string?
                                      :password string?}}
-                 :handler (fn [{{{:keys [email password]} :body} :parameters}]
-                            (database/add-user email password)
-                            (response nil))}}]]]
+                 :handler    (fn [{{{:keys [email password]} :body} :parameters}]
+                               (database/add-user email password)
+                               (response nil))}}]]]
       {;;:reitit.middleware/transform dev/print-request-diffs ;; pretty diffs
        ;;:validate spec/validate ;; enable spec validation for route data
        ;;:reitit.spec/wrap spell/closed ;; strict top-level validation
        :exception pretty/exception
-       :data {:coercion reitit.coercion.spec/coercion
-              :muuntaja m/instance
-              :middleware [#(wrap-with-logger % {:exceptions false})
-                           wrap-with-body-logger
-                           swagger/swagger-feature
-                           parameters/parameters-middleware
-                           muuntaja/format-negotiate-middleware
-                           muuntaja/format-response-middleware
-                           exception/exception-middleware
-                           muuntaja/format-request-middleware
-                           coercion/coerce-response-middleware
-                           coercion/coerce-request-middleware
-                           multipart/multipart-middleware
-                           wrap-stacktrace-log]}})
+       :data      {:coercion   reitit.coercion.spec/coercion
+                   :muuntaja   m/instance
+                   :middleware [#(wrap-with-logger % {:exceptions false})
+                                wrap-with-body-logger
+                                swagger/swagger-feature
+                                parameters/parameters-middleware
+                                muuntaja/format-negotiate-middleware
+                                muuntaja/format-response-middleware
+                                exception/exception-middleware
+                                muuntaja/format-request-middleware
+                                coercion/coerce-response-middleware
+                                coercion/coerce-request-middleware
+                                multipart/multipart-middleware
+                                wrap-stacktrace-log]}})
     (ring/routes
       (swagger-ui/create-swagger-ui-handler
-        {:path "/"
-         :config {:validatorUrl nil
+        {:path   "/"
+         :config {:validatorUrl     nil
                   :operationsSorter "alpha"}})
       (ring/create-default-handler))))
 
