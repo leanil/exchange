@@ -1,5 +1,6 @@
 (ns exchange.database
   (:require
+    [clojure.set :as set]
     [next.jdbc :as jdbc])
   (:import (java.util UUID)))
 
@@ -26,3 +27,32 @@
   (with-open [conn (jdbc/get-connection datasource)]
     (-> (jdbc/prepare conn ["SELECT * FROM users"])
         (jdbc/execute!))))
+
+(def cents {:USD 100, :BTC 100000000})
+
+; Cannot disambiguate overloads of java.lang.Math.round: (Math/round ^float a) (Math/round ^double a)
+; TODO Should I type hint? How?
+(defn round-to-digits [value digits] (let [shift (Math/pow 10.0 digits)] (-> value (* shift) Math/round (/ shift))))
+
+(defn ->cents [amount currency] (-> cents currency (* amount) Math/round))
+
+(defn <-cents [amount currency] (-> cents currency / (* amount) (round-to-digits 2)))
+
+(defn get-balance-cents
+  ([user] (get-balance-cents datasource user))
+  ([connection user]
+   (-> (jdbc/execute-one! connection ["SELECT usd, btc FROM users WHERE id = ?" user])
+       (set/rename-keys {:users/usd :USD, :users/btc :BTC}))))
+
+(defn set-balance-cents [conn user balance]
+  (jdbc/execute-one! conn ["UPDATE users SET usd = ?, btc = ? WHERE id = ?" (:USD balance) (:BTC balance) user]))
+
+(defn topup-user [user amount currency]
+  (with-open [conn (jdbc/get-connection datasource)]
+
+    (let [cent-amount (->cents amount currency)
+          balance (-> (get-balance-cents conn user)
+                      (update currency + cent-amount))]
+      (if (every? nat-int? (vals balance))
+        (do (set-balance-cents conn user balance) true)
+        false))))

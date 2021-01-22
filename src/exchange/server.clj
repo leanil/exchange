@@ -29,6 +29,9 @@
         (response "Invalid token"))
       (response "Missing token"))))
 
+; TODO figure out how to coerce to keyword (with this, the parameter is still string)
+(defn currency? [currency] (#{:USD :BTC} (keyword currency)))
+
 (def app
   (ring/ring-handler
     (ring/router
@@ -50,7 +53,12 @@
                  :parameters {:body {:user_name string?}}
                  :handler    (fn [{{{:keys [user_name]} :body} :parameters}]
                                (database/add-user user_name)
-                               (response nil))}}]]]
+                               (response nil))}}]
+        ["/balance"
+         {:middleware [add-user]
+          :post       {:parameters {:body {:topup_amount double? :currency currency?}}
+                       :handler    (fn [{{{:keys [topup_amount currency]} :body} :parameters user :user}]
+                                     (response {:success (database/topup-user user topup_amount (keyword currency))}))}}]]]
       {;;:reitit.middleware/transform dev/print-request-diffs ;; pretty diffs
        ;;:validate spec/validate ;; enable spec validation for route data
        ;;:reitit.spec/wrap spell/closed ;; strict top-level validation
