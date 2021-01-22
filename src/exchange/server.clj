@@ -21,6 +21,14 @@
 
 ; based on https://github.com/metosin/reitit/blob/master/examples/ring-swagger/src/example/server.clj
 
+(defn add-user [handler]
+  (fn [request]
+    (if-let [token (get-in request [:headers "authorization"])]
+      (if-let [user (database/get-user-by-token token)]
+        (handler (update request :user (constantly user)))
+        (response "Invalid token"))
+      (response "Missing token"))))
+
 (def app
   (ring/ring-handler
     (ring/router
@@ -32,7 +40,8 @@
        ["/api"
         {:swagger {:tags ["api"]}}
         ["/users"
-         {:get  {:summary    "list all users"
+         {:get  {:middleware [add-user]
+                 :summary    "list all users"
                  :parameters {}
                  :handler    (fn [_]
                                (let [users (database/list-user)]

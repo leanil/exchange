@@ -18,6 +18,10 @@
                                  user-name
                                  (.toString (UUID/randomUUID))]))
 
+(defn get-user-by-token [token]
+  (let [token-value (second (re-matches #"Bearer (\S+)" token))]
+    (:users/id (jdbc/execute-one! datasource ["SELECT id FROM users WHERE token = ?" token-value]))))
+
 (defn list-user []
   (with-open [conn (jdbc/get-connection datasource)]
     (-> (jdbc/prepare conn ["SELECT * FROM users"])
