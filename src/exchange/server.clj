@@ -38,10 +38,9 @@
                                (let [users (database/list-user)]
                                  (response {:users users})))}
           :post {:summary    "create user"
-                 :parameters {:body {:email    string?
-                                     :password string?}}
-                 :handler    (fn [{{{:keys [email password]} :body} :parameters}]
-                               (database/add-user email password)
+                 :parameters {:body {:user_name string?}}
+                 :handler    (fn [{{{:keys [user_name]} :body} :parameters}]
+                               (database/add-user user_name)
                                (response nil))}}]]]
       {;;:reitit.middleware/transform dev/print-request-diffs ;; pretty diffs
        ;;:validate spec/validate ;; enable spec validation for route data
