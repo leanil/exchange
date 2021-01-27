@@ -56,6 +56,7 @@
                                (response nil))}}]
         ["/balance"
          {:middleware [add-user]
+          :get        {:handler (fn [{user :user}] (response (database/get-balance user)))}
           :post       {:parameters {:body {:topup_amount double? :currency currency?}}
                        :handler    (fn [{{{:keys [topup_amount currency]} :body} :parameters user :user}]
                                      (response {:success (database/topup-user user topup_amount (keyword currency))}))}}]]]

@@ -9,7 +9,8 @@
   ring/ring {:mvn/version "1.8.2"}
   ring/ring-jetty-adapter {:mvn/version "1.7.1"}
   ring-logger-timbre/ring-logger-timbre {:mvn/version "0.7.6"}
-  metosin/reitit {:mvn/version "0.5.10"}}
+  metosin/reitit {:mvn/version "0.5.10"}
+  clj-http/clj-http {:mvn/version "3.11.0"}}
 
  :aliases
  {:exchange

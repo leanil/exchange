@@ -1,5 +1,7 @@
 (ns exchange.database
   (:require
+    [cheshire.core :as cheshire]
+    [clj-http.client :as client]
     [clojure.set :as set]
     [next.jdbc :as jdbc])
   (:import (java.util UUID)))
@@ -56,3 +58,18 @@
       (if (every? nat-int? (vals balance))
         (do (set-balance-cents conn user balance) true)
         false))))
+
+(defn get-btc-rate []
+  (-> (client/get "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+                  {:headers      {:X-CMC_PRO_API_KEY (System/getenv "COINMARKETCAP_API_KEY")}
+                   :accept       :json
+                   :query-params {:symbol "BTC", :convert "USD"}})
+      :body
+      (cheshire/parse-string true)
+      (get-in [:data :BTC :quote :USD :price])))
+
+(defn get-balance [user]
+  (let [balance (into {} (for [[currency amount] (get-balance-cents user)] [currency (<-cents amount currency)]))
+        btc-rate (get-btc-rate)
+        total-usd (+ (:USD balance) (* btc-rate (:BTC balance)))]
+    (update balance :USD_equivalent (constantly (round-to-digits total-usd 2)))))
