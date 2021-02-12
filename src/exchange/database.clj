@@ -5,7 +5,8 @@
     [clojure.set :as set]
     [next.jdbc :as jdbc]
     [next.jdbc.sql :as sql]
-    [next.jdbc.types :refer [as-other]])
+    [next.jdbc.types :refer [as-other]]
+    [clojure.string :as str])
   (:import (java.util UUID)))
 
 (def ^:dynamic db {:dbtype   "postgresql"
@@ -71,3 +72,48 @@
 (defn get-extended-balance [user]
   (let [{:keys [BTC USD] :as balance} (get-balance user)]
     (assoc balance :USD_equivalent (+ USD (* (get-btc-rate) BTC)))))
+
+(defn order->sql [order]
+  (->> (reduce #(update %1 %2 (comp as-other name)) order [:exchange.order/state :exchange.order/type])
+       (into {} (map #(update-in % [0] (fn [key] (-> key name (str/replace \- \_) keyword)))))))
+
+(defn sql->order [sql]
+  (->> (reduce #(update %1 %2 keyword) sql [:exchange_order/state :exchange_order/type])
+       (into {} (map #(update-in % [0] (fn [key] (keyword "exchange.order" (-> key name (str/replace \_ \-)))))))))
+
+(defn create-order [order connection]
+  ;(println "create-order" order)
+  (:exchange_order/id (sql/insert! connection "exchange_order" (order->sql order))))
+
+(defn get-order [order-id user]
+  (-> (jdbc/execute-one! (ds) ["SELECT * FROM exchange_order WHERE id = ? AND user_id = ?" order-id user])
+      sql->order))
+
+(defn delete-order [order-id user]
+  (-> (jdbc/execute-one!
+        (ds)
+        ["UPDATE exchange_order SET state = 'CANCELLED' WHERE id = ? AND user_id = ? AND state = 'LIVE'" order-id user])
+      ::jdbc/update-count (= 1)))
+
+(defn update-order [order connection]
+  ;(println "update-order" order)
+  (let [transformed (order->sql order)]
+    (sql/update! connection "exchange_order" transformed (select-keys transformed [:id]))))
+
+(defn get-live-orders-of-user [connection user order-type]
+  ;(println "get-live-orders-of-user" user order-type)
+  (->>
+    ["SELECT * FROM exchange_order WHERE user_id = ? AND state = 'LIVE' AND type = ?::order_type"
+     user (name order-type)]
+    (jdbc/execute! connection)
+    (map sql->order)))
+
+(defn get-live-orders-of-others [connection user order-type price]
+  ;(println "get-live-orders-of-others" user order-type price)
+  (->>
+    [(format "SELECT * FROM exchange_order
+              WHERE user_id <> ? AND state = 'LIVE' AND type <> ?::order_type AND price %s ? ORDER BY price %s"
+             (order-type {:SELL ">=" :BUY "<="}) (order-type {:SELL "DESC" :BUY "ASC"}))
+     user (name order-type) price]
+    (jdbc/execute! connection)
+    (map sql->order)))

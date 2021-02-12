@@ -16,7 +16,8 @@
             [ring.util.response :refer [response status]]
             [exchange.database :as database]
             [ring.logger.timbre :refer [wrap-with-logger wrap-with-body-logger]]
-            [ring.middleware.stacktrace :refer [wrap-stacktrace-log]])
+            [ring.middleware.stacktrace :refer [wrap-stacktrace-log]]
+            [exchange.order :as order])
   )
 
 ; based on https://github.com/metosin/reitit/blob/master/examples/ring-swagger/src/example/server.clj
@@ -59,7 +60,22 @@
           :get        {:handler (fn [{user :user}] (response (database/get-extended-balance user)))}
           :post       {:parameters {:body {:amount int? :currency currency?}}
                        :handler    (fn [{{{:keys [amount currency]} :body} :parameters user :user}]
-                                     (response {:success (database/topup-user user amount (keyword currency))}))}}]]]
+                                     (response {:success (database/topup-user user amount (keyword currency))}))}}]
+        ["/standing_order"
+         {:middleware [add-user]
+          :post       {:parameters {:body {:quantity int? :type keyword? :limit_price int? :webhook_url string?}}
+                       :handler    (fn [{{{:keys [quantity type limit_price webhook_url]} :body} :parameters user :user}]
+                                     (response {:order_id (order/add-standing-order user quantity (keyword type) limit_price webhook_url)}))}}]
+        ["/standing_order/:id"
+         {:middleware [add-user]
+          :get        {:parameters {:path {:id int?}}       ;TODO: Shouldn't this spec mean an automatic cast to int? It works with body params...
+                       :handler    (fn [{{order-id :id} :path-params user :user}]
+                                     (response (order/get-standing-order user (Integer/parseInt order-id))))}
+          :delete     {:parameters {:path {:id int?}}
+                       :handler    (fn [{{order-id :id} :path-params user :user}]
+                                     (-> (database/delete-order (Integer/parseInt order-id) user)
+                                         (if 200 400)
+                                         status))}}]]]
       {;;:reitit.middleware/transform dev/print-request-diffs ;; pretty diffs
        ;;:validate spec/validate ;; enable spec validation for route data
        ;;:reitit.spec/wrap spell/closed ;; strict top-level validation
