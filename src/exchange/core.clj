@@ -8,6 +8,6 @@
 (defn -main []
   (log/info "starting")
   (log/info "preparing database")
-  (migratus/migrate database/migratus-config)
+  (migratus/migrate (database/migratus-config))
   (log/info "starting webserver")
   (server/start))

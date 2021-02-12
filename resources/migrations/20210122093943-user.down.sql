@@ -1,3 +1,3 @@
 DROP INDEX token_idx;
 --;;
-DROP TABLE users;
+DROP TABLE exchange_user;

@@ -13,7 +13,7 @@
             [ring.middleware.reload :refer [wrap-reload]]
             [muuntaja.core :as m]
             [taoensso.timbre :as log]
-            [ring.util.response :refer [response]]
+            [ring.util.response :refer [response status]]
             [exchange.database :as database]
             [ring.logger.timbre :refer [wrap-with-logger wrap-with-body-logger]]
             [ring.middleware.stacktrace :refer [wrap-stacktrace-log]])
@@ -26,8 +26,8 @@
     (if-let [token (get-in request [:headers "authorization"])]
       (if-let [user (database/get-user-by-token token)]
         (handler (update request :user (constantly user)))
-        (response "Invalid token"))
-      (response "Missing token"))))
+        (-> (response "Invalid token") (status 401)))
+      (-> (response "Missing token") (status 401)))))
 
 ; TODO figure out how to coerce to keyword (with this, the parameter is still string)
 (defn currency? [currency] (#{:USD :BTC} (keyword currency)))
@@ -51,15 +51,15 @@
                                  (response {:users users})))}
           :post {:summary    "create user"
                  :parameters {:body {:user_name string?}}
+                 :responses  {200 {:body {:token string?}}}
                  :handler    (fn [{{{:keys [user_name]} :body} :parameters}]
-                               (database/add-user user_name)
-                               (response nil))}}]
+                               (response {:token (database/add-user user_name)}))}}]
         ["/balance"
          {:middleware [add-user]
-          :get        {:handler (fn [{user :user}] (response (database/get-balance user)))}
-          :post       {:parameters {:body {:topup_amount double? :currency currency?}}
-                       :handler    (fn [{{{:keys [topup_amount currency]} :body} :parameters user :user}]
-                                     (response {:success (database/topup-user user topup_amount (keyword currency))}))}}]]]
+          :get        {:handler (fn [{user :user}] (response (database/get-extended-balance user)))}
+          :post       {:parameters {:body {:amount int? :currency currency?}}
+                       :handler    (fn [{{{:keys [amount currency]} :body} :parameters user :user}]
+                                     (response {:success (database/topup-user user amount (keyword currency))}))}}]]]
       {;;:reitit.middleware/transform dev/print-request-diffs ;; pretty diffs
        ;;:validate spec/validate ;; enable spec validation for route data
        ;;:reitit.spec/wrap spell/closed ;; strict top-level validation
@@ -76,6 +76,7 @@
                                 muuntaja/format-request-middleware
                                 coercion/coerce-response-middleware
                                 coercion/coerce-request-middleware
+                                coercion/coerce-exceptions-middleware
                                 multipart/multipart-middleware
                                 wrap-stacktrace-log]}})
     (ring/routes

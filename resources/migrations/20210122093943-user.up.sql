@@ -1,4 +1,4 @@
-CREATE TABLE users
+CREATE TABLE exchange_user
 (
     id        SERIAL PRIMARY KEY,
     user_name TEXT NOT NULL UNIQUE,
@@ -6,4 +6,4 @@ CREATE TABLE users
 );
 --;;
 CREATE
-INDEX token_idx ON users (token);
+INDEX token_idx ON exchange_user (token);

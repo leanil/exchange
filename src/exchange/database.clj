@@ -3,61 +3,61 @@
     [cheshire.core :as cheshire]
     [clj-http.client :as client]
     [clojure.set :as set]
-    [next.jdbc :as jdbc])
+    [next.jdbc :as jdbc]
+    [next.jdbc.sql :as sql]
+    [next.jdbc.types :refer [as-other]])
   (:import (java.util UUID)))
 
-(def datasource
-  (jdbc/get-datasource {:dbtype   "postgresql"
-                        :dbname   "exchange"
-                        :user     "test"
-                        :password "password"}))
-(def migratus-config {:store                :database
-                      :migration-dir        "migrations/"
-                      :migration-table-name "migrations"
-                      :db                   {:datasource datasource}})
+(def ^:dynamic db {:dbtype   "postgresql"
+                   :dbname   "exchange"
+                   :user     "test"
+                   :password "password"})
 
+(defn ds [] (jdbc/get-datasource db))
+
+(defn migratus-config [] {:store                :database
+                          :migration-dir        "migrations/"
+                          :migration-table-name "migrations"
+                          :db                   {:datasource (ds)}})
+
+;TODO: Return 400 with meaningful message on duplicate user name.
 (defn add-user [user-name]
-  (jdbc/execute-one! datasource ["INSERT INTO users (user_name, token) VALUES (?,?)"
-                                 user-name
-                                 (.toString (UUID/randomUUID))]))
+  (let [token (.toString (UUID/randomUUID))]
+    (sql/insert! (ds) "exchange_user" {:user_name user-name :token token})
+    token))
 
 (defn get-user-by-token [token]
   (let [token-value (second (re-matches #"Bearer (\S+)" token))]
-    (:users/id (jdbc/execute-one! datasource ["SELECT id FROM users WHERE token = ?" token-value]))))
+    (:exchange_user/id (jdbc/execute-one! (ds) ["SELECT id FROM exchange_user WHERE token = ?" token-value]))))
 
 (defn list-user []
-  (with-open [conn (jdbc/get-connection datasource)]
-    (-> (jdbc/prepare conn ["SELECT * FROM users"])
+  (with-open [conn (jdbc/get-connection (ds))]
+    (-> (jdbc/prepare conn ["SELECT * FROM exchange_user"])
         (jdbc/execute!))))
 
-(def cents {:USD 100, :BTC 100000000})
-
-; Cannot disambiguate overloads of java.lang.Math.round: (Math/round ^float a) (Math/round ^double a)
-; TODO Should I type hint? How?
-(defn round-to-digits [value digits] (let [shift (Math/pow 10.0 digits)] (-> value (* shift) Math/round (/ shift))))
-
-(defn ->cents [amount currency] (-> cents currency (* amount) Math/round))
-
-(defn <-cents [amount currency] (-> cents currency / (* amount) (round-to-digits 2)))
-
-(defn get-balance-cents
-  ([user] (get-balance-cents datasource user))
+(defn get-balance
+  ([user] (get-balance (ds) user))
   ([connection user]
-   (-> (jdbc/execute-one! connection ["SELECT usd, btc FROM users WHERE id = ?" user])
-       (set/rename-keys {:users/usd :USD, :users/btc :BTC}))))
+   (-> (jdbc/execute-one! connection ["SELECT usd, btc FROM exchange_user WHERE id = ?" user])
+       (set/rename-keys {:exchange_user/usd :USD, :exchange_user/btc :BTC}))))
 
-(defn set-balance-cents [conn user balance]
-  (jdbc/execute-one! conn ["UPDATE users SET usd = ?, btc = ? WHERE id = ?" (:USD balance) (:BTC balance) user]))
+(defn set-balance [conn user balance]
+  (jdbc/execute-one! conn ["UPDATE exchange_user SET usd = ?, btc = ? WHERE id = ?" (:USD balance) (:BTC balance) user]))
+
+(defn adjust-balance [connection user btc usd]
+  ;(println "adjust-balance" user btc usd)
+  (let [balance (-> (get-balance connection user)
+                    (update :BTC + btc)
+                    (update :USD + usd))]
+    (if (every? nat-int? (vals balance))
+      (do (set-balance connection user balance) true)
+      false)))
 
 (defn topup-user [user amount currency]
-  (with-open [conn (jdbc/get-connection datasource)]
-
-    (let [cent-amount (->cents amount currency)
-          balance (-> (get-balance-cents conn user)
-                      (update currency + cent-amount))]
-      (if (every? nat-int? (vals balance))
-        (do (set-balance-cents conn user balance) true)
-        false))))
+  (with-open [connection (jdbc/get-connection (ds))]
+    (case currency
+      :BTC (adjust-balance connection user amount 0)
+      :USD (adjust-balance connection user 0 amount))))
 
 (defn get-btc-rate []
   (-> (client/get "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
@@ -68,8 +68,6 @@
       (cheshire/parse-string true)
       (get-in [:data :BTC :quote :USD :price])))
 
-(defn get-balance [user]
-  (let [balance (into {} (for [[currency amount] (get-balance-cents user)] [currency (<-cents amount currency)]))
-        btc-rate (get-btc-rate)
-        total-usd (+ (:USD balance) (* btc-rate (:BTC balance)))]
-    (update balance :USD_equivalent (constantly (round-to-digits total-usd 2)))))
+(defn get-extended-balance [user]
+  (let [{:keys [BTC USD] :as balance} (get-balance user)]
+    (assoc balance :USD_equivalent (+ USD (* (get-btc-rate) BTC)))))
