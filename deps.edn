@@ -20,6 +20,7 @@
   :test
   {:extra-paths ["test"]
    :extra-deps
-   {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner"
-                               :sha "5f2b5c2efb444df76fb5252102b33f542ebf7f58"}}
-   :main-opts ["-m" "cognitect.test-runner"]}}}
+                {com.cognitect/test-runner {:git/url "https://github.com/cognitect-labs/test-runner"
+                                            :sha     "5f2b5c2efb444df76fb5252102b33f542ebf7f58"}
+                 ring/ring-mock            {:mvn/version "0.4.0"}}
+   :main-opts   ["-m" "cognitect.test-runner"]}}}
