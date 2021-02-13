@@ -17,6 +17,42 @@
 (s/def ::usd-amount int?)
 (s/def ::order (s/keys :req [::user-id ::state ::amount ::type ::price ::url] :opt [::id]))
 
+(defn get-balance-change [amount price]
+  {:SELL {:BTC (- amount) :USD (* amount price)}
+   :BUY  {:BTC amount :USD (- (* amount price))}})
+
+(defn subtract-amount [order amount price]
+  ;(println "subtract-amount" order amount)
+  (-> order
+      (update ::amount - amount)
+      (update ::state #(if (< amount (::amount order)) % :FULFILLED))
+      (update ::usd-amount + (* amount price))))
+
+(defn match-market-order! [connection {:keys [market-order, balance]} {price ::price :as standing-order}]
+  ;(println "match-market-order!" market-order balance standing-order)
+  (let [balance-limit (case (:type market-order) :SELL (:BTC balance)
+                                                 :BUY (quot (:USD balance) price))
+        trade-amount (min (:amount market-order) (::amount standing-order) balance-limit)
+        balance-change (get-balance-change trade-amount price)]
+    (database/update-order (subtract-amount standing-order trade-amount price) connection)
+    (database/adjust-balance connection (::user-id standing-order) (-> standing-order ::type balance-change))
+    {:market-order (-> market-order
+                       (update :amount - trade-amount)
+                       (update :USD + (* trade-amount price)))
+     :balance      (reduce #(update %1 %2 + (get-in balance-change [(:type market-order) %2])) balance [:BTC :USD])}))
+
+(defn add-market-order [user amount type]
+  (jdbc/with-transaction
+    [transaction (database/ds)]
+    (let [{{final-amount :amount usd :USD} :market-order balance :balance}
+          (reduce
+            (partial match-market-order! transaction)
+            {:market-order {:amount amount :USD 0 :type type} :balance (database/get-balance transaction user)}
+            (database/get-live-orders-of-others transaction user type))
+          quantity (- amount final-amount)]
+      (database/set-balance transaction user balance)
+      {:quantity quantity :avg_price (/ usd quantity)})))
+
 (defn get-reserved-balance [connection user order-type]
   {:amount   (->> (database/get-live-orders-of-user connection user order-type)
                   (map (case order-type :SELL #(::amount %) :BUY #(* (::amount %) (::price %))))
@@ -31,28 +67,19 @@
         is-valid (>= (currency balance) (+ reserved-amount order-amount))]
     (update order ::state #(if is-valid % :CANCELLED))))
 
-(defn subtract-amount [order amount price]
-  ;(println "subtract-amount" order amount)
-  (-> order
-      (update ::amount - amount)
-      (update ::state #(if (< amount (::amount order)) % :FULFILLED))
-      (update ::usd-amount + (* amount price))))
-
 (defn match-pair! [connection main-order candidate-order]
   ;(println "match-pair!" main-order candidate-order)
   (if (not= (::state main-order) :LIVE)
     (reduced main-order)
     (let [amount (min (::amount main-order) (::amount candidate-order))
           price (::price candidate-order)
-          [buyer seller] (->> (case (::type main-order) :BUY [main-order candidate-order]
-                                                        :SELL [candidate-order main-order])
-                              (map ::user-id))]
+          balance-change (get-balance-change amount price)]
       (do (database/update-order (subtract-amount candidate-order amount price) connection)
-          (database/adjust-balance connection buyer amount (- (* amount price)))
-          (database/adjust-balance connection seller (- amount) (* amount price))
+          (doseq [order [main-order candidate-order]]
+            (database/adjust-balance connection (::user-id order) (-> order ::type balance-change)))
           (subtract-amount main-order amount price)))))
 
-(defn match! [{:exchange.order/keys [user-id state type price] :as order} connection]
+(defn match-standing-order! [{:exchange.order/keys [user-id state type price] :as order} connection]
   ;(println "match!" order)
   (if (not= state :LIVE)
     order
@@ -66,7 +93,7 @@
     (-> {::user-id user ::state :LIVE ::amount amount ::type type ::price price
          ::url     url ::original-amount amount ::usd-amount 0}
         (validate-balance transaction)
-        (match! transaction)
+        (match-standing-order! transaction)
         (database/create-order transaction))))
 
 (defn get-standing-order [user order-id]

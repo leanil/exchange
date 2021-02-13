@@ -45,7 +45,7 @@
 (defn set-balance [conn user balance]
   (jdbc/execute-one! conn ["UPDATE exchange_user SET usd = ?, btc = ? WHERE id = ?" (:USD balance) (:BTC balance) user]))
 
-(defn adjust-balance [connection user btc usd]
+(defn adjust-balance [connection user {btc :BTC usd :USD}]
   ;(println "adjust-balance" user btc usd)
   (let [balance (-> (get-balance connection user)
                     (update :BTC + btc)
@@ -56,9 +56,7 @@
 
 (defn topup-user [user amount currency]
   (with-open [connection (jdbc/get-connection (ds))]
-    (case currency
-      :BTC (adjust-balance connection user amount 0)
-      :USD (adjust-balance connection user 0 amount))))
+    (adjust-balance connection user (update {:BTC 0 :USD 0} currency + amount))))
 
 (defn get-btc-rate []
   (-> (client/get "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
@@ -108,12 +106,18 @@
     (jdbc/execute! connection)
     (map sql->order)))
 
-(defn get-live-orders-of-others [connection user order-type price]
-  ;(println "get-live-orders-of-others" user order-type price)
-  (->>
-    [(format "SELECT * FROM exchange_order
-              WHERE user_id <> ? AND state = 'LIVE' AND type <> ?::order_type AND price %s ? ORDER BY price %s"
-             (order-type {:SELL ">=" :BUY "<="}) (order-type {:SELL "DESC" :BUY "ASC"}))
-     user (name order-type) price]
-    (jdbc/execute! connection)
-    (map sql->order)))
+(defn get-orders-query [order-type is-price-limited]
+  (format "SELECT * FROM exchange_order
+           WHERE user_id <> ? AND state = 'LIVE' AND type <> ?::order_type %s ORDER BY price %s"
+          (if is-price-limited (format "AND price %s ? " (order-type {:SELL ">=" :BUY "<="})) "")
+          (order-type {:SELL "DESC" :BUY "ASC"})))
+
+(defn get-live-orders-of-others
+  ([connection user order-type]
+   (->> [(get-orders-query order-type false) user (name order-type)]
+        (jdbc/execute! connection)
+        (map sql->order)))
+  ([connection user order-type price]
+   (->> [(get-orders-query order-type true) user (name order-type) price]
+        (jdbc/execute! connection)
+        (map sql->order))))

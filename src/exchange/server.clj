@@ -61,11 +61,18 @@
           :post       {:parameters {:body {:amount int? :currency currency?}}
                        :handler    (fn [{{{:keys [amount currency]} :body} :parameters user :user}]
                                      (response {:success (database/topup-user user amount (keyword currency))}))}}]
+        ["/market_order"
+         {:middleware [add-user]
+          :post       {:parameters {:body {:quantity int? :type keyword?}}
+                       :handler    (fn [{{{:keys [quantity type]} :body} :parameters user :user}]
+                                     (response (order/add-market-order user quantity (keyword type))))}}]
         ["/standing_order"
          {:middleware [add-user]
           :post       {:parameters {:body {:quantity int? :type keyword? :limit_price int? :webhook_url string?}}
-                       :handler    (fn [{{{:keys [quantity type limit_price webhook_url]} :body} :parameters user :user}]
-                                     (response {:order_id (order/add-standing-order user quantity (keyword type) limit_price webhook_url)}))}}]
+                       :handler    (fn [{{{:keys [quantity type limit_price webhook_url]} :body} :parameters
+                                         user                                                    :user}]
+                                     (response {:order_id (order/add-standing-order user quantity (keyword type)
+                                                                                    limit_price webhook_url)}))}}]
         ["/standing_order/:id"
          {:middleware [add-user]
           :get        {:parameters {:path {:id int?}}       ;TODO: Shouldn't this spec mean an automatic cast to int? It works with body params...

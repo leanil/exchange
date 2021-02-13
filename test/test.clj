@@ -22,16 +22,7 @@
 (use-fixtures :each clear-db)
 (use-fixtures :once init-db)
 
-
-(deftest register
-  (testing "correct registration"
-    (is (= 200
-           (:status (server/app (-> (mock/request :post "/api/users")
-                                    (mock/json-body {:user_name "A"})))))))
-  (testing "existing user name"
-    (is (= 500
-           (:status (server/app (-> (mock/request :post "/api/users")
-                                    (mock/json-body {:user_name "A"}))))))))
+; HELPERS
 
 (defn add-user [user-name]
   (-> (mock/request :post "/api/users")
@@ -83,6 +74,26 @@
       (mock/body {})
       server/app
       :status))
+
+(defn add-market-order [token quantity type]
+  (-> (mock/request :post "/api/market_order")
+      (mock/header "Authorization" token)
+      (mock/json-body {:quantity quantity :type type})
+      server/app
+      :body slurp
+      (cheshire/parse-string true)))
+
+; TESTS
+
+(deftest register
+  (testing "correct registration"
+    (is (= 200
+           (:status (server/app (-> (mock/request :post "/api/users")
+                                    (mock/json-body {:user_name "A"})))))))
+  (testing "existing user name"
+    (is (= 500
+           (:status (server/app (-> (mock/request :post "/api/users")
+                                    (mock/json-body {:user_name "A"}))))))))
 
 (deftest balance
   (let [token (add-user "A")]
@@ -161,3 +172,39 @@
         (testing "balances after second match"
           (is (= {:BTC 1 :USD 90000} (get-balance token-a)))
           (is (= {:BTC 6 :USD 30001} (get-balance token-b))))))))
+
+(deftest market-order-matching
+  (let [token-a (add-user "A")
+        token-b (add-user "B")]
+    (adjust-balance token-a 6 "BTC")
+    (adjust-balance token-a 3000 "USD")
+    (adjust-balance token-b 90000 "USD")
+    (let [order-1 (add-standing-order token-a 4 "SELL" 20000 "asd")
+          order-2 (add-standing-order token-a 2 "SELL" 10000 "asd")
+          order-3 (add-standing-order token-a 3 "BUY" 1000 "asd")]
+      (testing "market order limited on amount"
+        (is (= {:quantity 1 :avg_price 10000} (add-market-order token-b 1 "BUY")))
+        (let [{::order/keys [state amount usd-amount]} (get-standing-order token-a order-2)]
+          (is (= "LIVE" state))
+          (is (= 1 amount))
+          (is (= 10000 usd-amount)))
+        (is (= {:BTC 5 :USD 13000} (get-balance token-a)))
+        (is (= {:BTC 1 :USD 80000} (get-balance token-b))))
+      (testing "market order limited on balance"
+        (is (= {:quantity 4 :avg_price 17500} (add-market-order token-b 5 "BUY")))
+        (let [{::order/keys [state usd-amount]} (get-standing-order token-a order-2)]
+          (is (= "FULFILLED" state))
+          (is (= 20000 usd-amount)))
+        (let [{::order/keys [state amount usd-amount]} (get-standing-order token-a order-1)]
+          (is (= "LIVE" state))
+          (is (= 1 amount))
+          (is (= 60000 usd-amount)))
+        (is (= {:BTC 1 :USD 83000} (get-balance token-a)))
+        (is (= {:BTC 5 :USD 10000} (get-balance token-b))))
+      (testing "market order limited on market"
+        (is (= {:quantity 3 :avg_price 1000} (add-market-order token-b 10 "SELL")))
+        (let [{::order/keys [state usd-amount]} (get-standing-order token-a order-3)]
+          (is (= "FULFILLED" state))
+          (is (= 3000 usd-amount)))
+        (is (= {:BTC 4 :USD 80000} (get-balance token-a)))
+        (is (= {:BTC 2 :USD 13000} (get-balance token-b)))))))
