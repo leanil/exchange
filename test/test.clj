@@ -208,3 +208,54 @@
           (is (= 3000 usd-amount)))
         (is (= {:BTC 4 :USD 80000} (get-balance token-a)))
         (is (= {:BTC 2 :USD 13000} (get-balance token-b)))))))
+
+(deftest example-scenario
+  (let [token-a (add-user "A")
+        token-b (add-user "B")
+        token-c (add-user "C")
+        token-d (add-user "D")]
+    (adjust-balance token-a 1 "BTC")
+    (adjust-balance token-b 10 "BTC")
+    (adjust-balance token-c 250000 "USD")
+    (adjust-balance token-d 300000 "USD")
+    (let [order-1 (add-standing-order token-a 10 "SELL" 10000 "asd")]
+      (testing "order 1 CANCELLED"
+        (is (= "CANCELLED" (::order/state (get-standing-order token-a order-1))))))
+    (adjust-balance token-a 9 "BTC")
+    (let [order-2 (add-standing-order token-a 10 "SELL" 10000 "asd")
+          order-3 (add-standing-order token-b 10 "SELL" 20000 "asd")]
+      (testing "market order C"
+        (is (= {:quantity 15 :avg_price 13333} (add-market-order token-c 15 "BUY"))))
+      (testing "C balance"
+        (is (= {:BTC 15 :USD 50000} (get-balance token-c))))
+      (testing "order 2 state"
+        (let [{::order/keys [state amount original-amount avg_price]} (get-standing-order token-a order-2)]
+          (is (= "FULFILLED" state))
+          (is (= 10000 avg_price))
+          (is (= 10 (- original-amount amount)))
+          (is (= 0 amount))))
+      (testing "order 3 state"
+        (let [{::order/keys [state amount original-amount avg_price]} (get-standing-order token-b order-3)]
+          (is (= "LIVE" state))
+          (is (= 20000 avg_price))
+          (is (= 5 (- original-amount amount)))
+          (is (= 5 amount))))
+      (let [order-4 (add-standing-order token-d 20 "BUY" 10000 "asd")]
+        (testing "order 4 LIVE"
+          (is (= "LIVE" (::order/state (get-standing-order token-d order-4)))))
+        (let [order-5 (add-standing-order token-d 10 "BUY" 25000 "asd")]
+          (testing "order 5 CANCELLED"
+            (is (= "CANCELLED" (::order/state (get-standing-order token-d order-5))))))
+        (testing "order 4 CANCELLED"
+          (is (= 200 (delete-standing-order token-d order-4)))
+          (is (= "CANCELLED" (::order/state (get-standing-order token-d order-4))))))
+      (let [order-6 (add-standing-order token-d 10 "BUY" 25000 "asd")]
+        (testing "order 3 state"
+          (let [{::order/keys [state avg_price]} (get-standing-order token-b order-3)]
+            (is (= "FULFILLED" state))
+            (is (= 20000 avg_price))))
+        (testing "order 6 state"
+          (let [{::order/keys [state amount avg_price]} (get-standing-order token-d order-6)]
+            (is (= "LIVE" state))
+            (is (= 20000 avg_price))
+            (is (= 5 amount))))))))

@@ -51,7 +51,7 @@
             (database/get-live-orders-of-others transaction user type))
           quantity (- amount final-amount)]
       (database/set-balance transaction user balance)
-      {:quantity quantity :avg_price (/ usd quantity)})))
+      {:quantity quantity :avg_price (-> usd (/ quantity) double Math/round)})))
 
 (defn get-reserved-balance [connection user order-type]
   {:amount   (->> (database/get-live-orders-of-user connection user order-type)
