@@ -80,9 +80,14 @@
                                      (response (order/get-standing-order user (Integer/parseInt order-id))))}
           :delete     {:parameters {:path {:id int?}}
                        :handler    (fn [{{order-id :id} :path-params user :user}]
-                                     (-> (database/delete-order (Integer/parseInt order-id) user)
+                                     (-> (order/delete-order user (Integer/parseInt order-id))
                                          (if 200 400)
-                                         status))}}]]]
+                                         status))}}]]
+       ["/webhook"
+        {:post {:parameters {:body {:order_id int?}}
+                :handler    (fn [{{{:keys [order_id]} :body} :parameters}]
+                              (println (format "webhook called with #%d" order_id))
+                              (response nil))}}]]
       {;;:reitit.middleware/transform dev/print-request-diffs ;; pretty diffs
        ;;:validate spec/validate ;; enable spec validation for route data
        ;;:reitit.spec/wrap spell/closed ;; strict top-level validation

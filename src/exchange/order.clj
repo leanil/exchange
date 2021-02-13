@@ -1,5 +1,6 @@
 (ns exchange.order
-  (:require [clojure.spec.alpha :as s]
+  (:require [clj-http.client :as http]
+            [clojure.spec.alpha :as s]
             [next.jdbc :as jdbc]
             [exchange.database :as database]))
 
@@ -16,6 +17,14 @@
 (s/def ::original-amount int?)
 (s/def ::usd-amount int?)
 (s/def ::order (s/keys :req [::user-id ::state ::amount ::type ::price ::url] :opt [::id]))
+
+(defn update-order [{::keys [id url] :as order} connection]
+  (http/post url {:form-params {:order_id id} :content-type :json})
+  (database/update-order order connection))
+
+(defn delete-order [user order-id]
+  (http/post (::url (database/get-order order-id user)) {:form-params {:order_id order-id} :content-type :json})
+  (database/delete-order order-id user))
 
 (defn get-balance-change [amount price]
   {:SELL {:BTC (- amount) :USD (* amount price)}
@@ -34,7 +43,7 @@
                                                  :BUY (quot (:USD balance) price))
         trade-amount (min (:amount market-order) (::amount standing-order) balance-limit)
         balance-change (get-balance-change trade-amount price)]
-    (database/update-order (subtract-amount standing-order trade-amount price) connection)
+    (update-order (subtract-amount standing-order trade-amount price) connection)
     (database/adjust-balance connection (::user-id standing-order) (-> standing-order ::type balance-change))
     {:market-order (-> market-order
                        (update :amount - trade-amount)
@@ -74,7 +83,7 @@
     (let [amount (min (::amount main-order) (::amount candidate-order))
           price (::price candidate-order)
           balance-change (get-balance-change amount price)]
-      (do (database/update-order (subtract-amount candidate-order amount price) connection)
+      (do (update-order (subtract-amount candidate-order amount price) connection)
           (doseq [order [main-order candidate-order]]
             (database/adjust-balance connection (::user-id order) (-> order ::type balance-change)))
           (subtract-amount main-order amount price)))))
