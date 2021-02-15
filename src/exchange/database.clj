@@ -121,3 +121,6 @@
    (->> [(get-orders-query order-type true) user (name order-type) price]
         (jdbc/execute! connection)
         (map sql->order))))
+
+(defn get-live-order-count []
+  (jdbc/execute-one! (ds) ["SELECT count(*) FROM exchange_order WHERE state = 'LIVE'"]))

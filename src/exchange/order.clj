@@ -107,4 +107,5 @@
 
 (defn get-standing-order [user order-id]
   (let [{:exchange.order/keys [amount original-amount usd-amount] :as order} (database/get-order order-id user)]
-    (assoc order ::avg_price (if (= amount original-amount) nil (/ usd-amount (- original-amount amount))))))
+    (assoc order ::avg_price (if (= amount original-amount)
+                               nil (-> usd-amount (/ (- original-amount amount)) double Math/round)))))
